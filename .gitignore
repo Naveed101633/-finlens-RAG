@@ -1,0 +1,40 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# Environment
+.env
+
+# UV
+uv.lock
+
+# Qdrant local storage
+qdrant_storage/
+
+# Data (never commit PDFs or processed chunks)
+data/raw/
+data/processed/
+
+# Frontend
+frontend/node_modules/
+frontend/.next/
+
+# OS
+.DS_Store
+Thumbs.db
+```
+
+**File 2 of 4 — `pyproject.toml`**
+
+Open `pyproject.toml`. It already has some UV-generated content. Replace everything with this — give Copilot this prompt:
+```
+Write a pyproject.toml for UV package manager for a project called financial-rag.
+Python 3.11+. Dependencies: fastapi, uvicorn[standard], anthropic, qdrant-client,
+sentence-transformers, pymupdf, python-dotenv, pydantic-settings, ragas, datasets,
+rank-bm25, httpx. Dev dependencies: pytest, pytest-asyncio, black, ruff.

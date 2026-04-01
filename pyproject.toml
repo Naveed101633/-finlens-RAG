@@ -1,0 +1,37 @@
+[project]
+name = "financial-rag"
+version = "0.1.0"
+description = "FinLens — AI-powered financial report analyst for PSX listed companies"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "google-generativeai",
+    "qdrant-client",
+    "sentence-transformers",
+    "pymupdf",
+    "python-dotenv",
+    "pydantic-settings",
+    "ragas",
+    "datasets",
+    "rank-bm25",
+    "httpx",
+    "google-genai>=1.69.0",
+    "python-multipart>=0.0.22",
+]
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21",
+    "black>=23.0",
+    "ruff>=0.1",
+]
+
+[tool.ruff]
+line-length = 88
+select = ["E", "F", "I"]
+
+[tool.black]
+line-length = 88
+target-version = ["py311"]
