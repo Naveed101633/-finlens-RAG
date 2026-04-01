@@ -9,6 +9,7 @@ from rank_bm25 import BM25Okapi
 from qdrant_client import QdrantClient
 from qdrant_client import models
 
+from app.config import get_settings
 from ingestion.embedder import Embedder
 
 logger = logging.getLogger(__name__)
@@ -50,7 +51,14 @@ class Retriever:
         self.embedder = embedder
         
         logger.info(f"Initializing Retriever with Qdrant at {qdrant_host}:{qdrant_port}")
-        self.client = QdrantClient(host=qdrant_host, port=qdrant_port)
+        from app.config import get_settings
+        _settings = get_settings()
+        self.client = QdrantClient(
+        host=qdrant_host,
+        port=qdrant_port,
+        api_key=_settings.qdrant_api_key if _settings.qdrant_api_key else None,
+        https=True if _settings.qdrant_api_key else False
+      )
         self.bm25_index = None
         self.bm25_chunks = []
         logger.info(f"Retriever connected to collection: {collection_name}")

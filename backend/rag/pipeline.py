@@ -49,8 +49,12 @@ class RAGPipeline:
             }
             for point in points
         ]
-        self.retriever.build_bm25_index(chunks)
-        logger.info("BM25 index built from Qdrant collection")
+        if chunks:
+            self.retriever.build_bm25_index(chunks)
+            logger.info(f"BM25 index built with {len(chunks)} chunks")
+        else:
+            logger.info("No documents in collection — BM25 index skipped")
+            logger.info("BM25 index built from Qdrant collection")
         
         # Initialize generator
         self.generator = Generator(

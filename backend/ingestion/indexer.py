@@ -6,6 +6,7 @@ from typing import List, Tuple
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct
 
+from app.config import get_settings
 from ingestion.chunker import TextChunk
 
 logger = logging.getLogger(__name__)
@@ -35,7 +36,14 @@ class QdrantIndexer:
         self.embedding_dim = embedding_dim
         
         logger.info(f"Connecting to Qdrant at {host}:{port}")
-        self.client = QdrantClient(host=host, port=port)
+        from app.config import get_settings
+        _settings = get_settings()
+        self.client = QdrantClient(
+        host=host,
+        port=port,
+        api_key=_settings.qdrant_api_key if _settings.qdrant_api_key else None,
+        https=True if _settings.qdrant_api_key else False
+    )
         logger.info(f"Connected to Qdrant, using collection: {collection_name}")
     
     def create_collection(self) -> None:
@@ -80,7 +88,7 @@ class QdrantIndexer:
         """
         logger.info(f"Indexing {len(chunk_embeddings)} chunks into '{self.collection_name}'")
         
-        batch_size = 100
+        batch_size = 50
         total_indexed = 0
         
         for i in range(0, len(chunk_embeddings), batch_size):
