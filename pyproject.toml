@@ -8,7 +8,6 @@ dependencies = [
     "uvicorn[standard]",
     "google-generativeai",
     "qdrant-client",
-    "sentence-transformers",
     "pymupdf",
     "python-dotenv",
     "pydantic-settings",
