@@ -18,6 +18,7 @@ dependencies = [
     "httpx",
     "google-genai>=1.69.0",
     "python-multipart>=0.0.22",
+    "fastembed>=0.8.0",
 ]
 
 [tool.uv]
