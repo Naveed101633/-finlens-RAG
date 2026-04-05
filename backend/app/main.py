@@ -17,11 +17,16 @@ app = FastAPI(
 )
 
 app.add_middleware(
-	CORSMiddleware,
-	allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
-	allow_credentials=True,
-	allow_methods=["*"],
-	allow_headers=["*"],
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "https://finlens-rag.vercel.app",      # ← Your current Vercel domain
+        "https://*.vercel.app",               # ← Allows all Vercel subdomains (safe for future deploys)
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 app.include_router(query_router)
