@@ -39,8 +39,17 @@ def root() -> dict:
 
 
 @app.on_event("startup")
-def on_startup() -> None:
-	"""Warm up core services during application startup."""
-	logger.info("FinLens API starting up")
-	get_pipeline()
-	logger.info("Pipeline ready")
+async def on_startup() -> None:
+    """Warm up pipeline in background so healthcheck passes immediately."""
+    import asyncio
+    logger.info("FinLens API starting up")
+    asyncio.create_task(warm_up_pipeline())
+
+async def warm_up_pipeline():
+    import asyncio
+    await asyncio.sleep(2)
+    try:
+        get_pipeline()
+        logger.info("Pipeline ready")
+    except Exception as e:
+        logger.error(f"Pipeline warmup failed: {e}")
