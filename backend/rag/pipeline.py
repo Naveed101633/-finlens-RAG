@@ -33,28 +33,40 @@ class RAGPipeline:
             embedder=self.embedder
         )
 
-        points, _ = self.retriever.client.scroll(
-            collection_name=settings.collection_name,
-            limit=10000,
-            with_payload=True,
-            with_vectors=False,
-        )
-        chunks = [
-            {
-                "text": point.payload["text"],
-                "chunk_id": point.payload["chunk_id"],
-                "page_number": point.payload["page_number"],
-                "source_file": point.payload["source_file"],
-                "chunk_index": point.payload["chunk_index"],
-            }
-            for point in points
-        ]
-        if chunks:
-            self.retriever.build_bm25_index(chunks)
-            logger.info(f"BM25 index built with {len(chunks)} chunks")
+        # On first deployment the collection may not exist yet; treat that as a valid empty state.
+        try:
+            collection_exists = self.retriever.client.collection_exists(settings.collection_name)
+        except Exception as exc:
+            logger.warning("Could not verify collection existence: %s", exc)
+            collection_exists = False
+
+        if collection_exists:
+            points, _ = self.retriever.client.scroll(
+                collection_name=settings.collection_name,
+                limit=10000,
+                with_payload=True,
+                with_vectors=False,
+            )
+            chunks = [
+                {
+                    "text": point.payload["text"],
+                    "chunk_id": point.payload["chunk_id"],
+                    "page_number": point.payload["page_number"],
+                    "source_file": point.payload["source_file"],
+                    "chunk_index": point.payload["chunk_index"],
+                }
+                for point in points
+            ]
+            if chunks:
+                self.retriever.build_bm25_index(chunks)
+                logger.info(f"BM25 index built with {len(chunks)} chunks")
+            else:
+                logger.info("Collection exists but has no documents; BM25 index skipped")
         else:
-            logger.info("No documents in collection — BM25 index skipped")
-            logger.info("BM25 index built from Qdrant collection")
+            logger.info(
+                "Collection '%s' not found yet; upload flow will create it on first document.",
+                settings.collection_name,
+            )
         
         # Initialize generator
         self.generator = Generator(
