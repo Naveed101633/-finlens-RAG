@@ -23,6 +23,17 @@ class GeneratedAnswer:
 
 class Generator:
     """Generates answers using Gemini LLM based on retrieved context."""
+
+    @staticmethod
+    def _normalize_model_name(model: str) -> str:
+        """Normalize model names from env/config to Gemini API expected format."""
+        raw = (model or "").strip()
+        cleaned = raw.lstrip("=").strip()
+
+        if cleaned.startswith("models/"):
+            cleaned = cleaned[len("models/") :]
+
+        return cleaned or "gemini-2.5-flash"
     
     def __init__(self, api_key: str, model: str = "gemini-2.5-flash"):
         """Initialize the generator with Gemini API.
@@ -31,11 +42,13 @@ class Generator:
             api_key: Google API key for Gemini
             model: Name of the Gemini model to use
         """
-        self.model_name = model
+        self.model_name = self._normalize_model_name(model)
         
-        logger.info(f"Configuring Gemini API with model: {model}")
+        if self.model_name != (model or ""):
+            logger.warning("Normalized Gemini model name from '%s' to '%s'", model, self.model_name)
+
+        logger.info(f"Configuring Gemini API with model: {self.model_name}")
         self.client = genai.Client(api_key=api_key)
-        self.model_name = model
         logger.info("Generator initialized successfully")
     
     def generate(
@@ -91,7 +104,7 @@ ANSWER:"""
         try:
             # Generate response from Gemini
             response = self.client.models.generate_content(
-                model= self.model_name,
+                model=self.model_name,
                 contents=prompt,
             )
             answer = response.text
