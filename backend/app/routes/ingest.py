@@ -32,6 +32,8 @@ def _process_upload_job(job_id: str, file_path: str, filename: str) -> None:
 		pipeline = get_pipeline()
 		embed_batch_size = max(16, int(pipeline.settings.ingest_embed_batch_size))
 		upsert_batch_size = max(32, int(pipeline.settings.ingest_qdrant_upsert_batch_size))
+		max_chunks_per_upload = max(200, int(pipeline.settings.ingest_max_chunks_per_upload))
+		bm25_max_chunks = max(0, int(pipeline.settings.ingest_bm25_max_chunks_in_memory))
 
 		_update_upload_job(job_id, {"stage": "Extracting text from PDF"})
 		loader = PDFLoader(file_path)
@@ -45,6 +47,17 @@ def _process_upload_job(job_id: str, file_path: str, filename: str) -> None:
 		chunks = chunker.chunk_documents(pages)
 		if not chunks:
 			raise ValueError("No valid text chunks were extracted from this PDF")
+		if len(chunks) > max_chunks_per_upload:
+			_update_upload_job(
+				job_id,
+				{
+					"stage": (
+						f"Document too large, indexing first {max_chunks_per_upload} "
+						f"of {len(chunks)} chunks"
+					),
+				},
+			)
+			chunks = chunks[:max_chunks_per_upload]
 
 		_update_upload_job(job_id, {"stage": "Preparing vector index"})
 		indexer = QdrantIndexer(
@@ -80,8 +93,14 @@ def _process_upload_job(job_id: str, file_path: str, filename: str) -> None:
 			}
 			for chunk in chunks
 		]
-		existing_bm25 = pipeline.retriever.bm25_chunks or []
-		pipeline.retriever.build_bm25_index(existing_bm25 + new_bm25_chunks)
+		if bm25_max_chunks > 0:
+			existing_bm25 = pipeline.retriever.bm25_chunks or []
+			combined_bm25 = existing_bm25 + new_bm25_chunks
+			if len(combined_bm25) > bm25_max_chunks:
+				combined_bm25 = combined_bm25[-bm25_max_chunks:]
+			pipeline.retriever.build_bm25_index(combined_bm25)
+		else:
+			logger.info("BM25 in-memory update skipped by configuration")
 
 		_update_upload_job(
 			job_id,
