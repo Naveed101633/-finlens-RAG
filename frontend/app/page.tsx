@@ -174,9 +174,11 @@ export default function Home() {
       }
     } catch (err) {
       const message =
-        err instanceof Error
-          ? err.message
-          : "Something went wrong while uploading the document.";
+        err instanceof TypeError
+          ? "Network/CORS error: cannot reach backend upload endpoint. Check NEXT_PUBLIC_API_URL and backend CORS settings."
+          : err instanceof Error
+            ? err.message
+            : "Something went wrong while uploading the document.";
       setUploadError(message);
     } finally {
       setIsUploading(false);
