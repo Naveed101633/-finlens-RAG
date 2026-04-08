@@ -14,6 +14,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["ingest"])
+EMBED_INDEX_BATCH_SIZE = 32
 
 
 @router.post("/upload")
@@ -45,9 +46,8 @@ async def upload_document(file: UploadFile = File(...)) -> dict:
 			chunk_overlap=pipeline.settings.chunk_overlap,
 		)
 		chunks = chunker.chunk_documents(pages)
-
-		logger.info("Embedding chunks with shared pipeline embedder")
-		chunk_embeddings = pipeline.embedder.embed_chunks(chunks)
+		if not chunks:
+			raise HTTPException(status_code=400, detail="No valid text chunks were extracted from this PDF")
 
 		logger.info("Indexing chunks into existing Qdrant collection")
 		indexer = QdrantIndexer(
@@ -57,26 +57,29 @@ async def upload_document(file: UploadFile = File(...)) -> dict:
 			embedding_dim=pipeline.embedder.get_embedding_dimension(),
 		)
 		indexer.create_collection()
-		indexer.index_chunks(chunk_embeddings)
 
-		logger.info("Refreshing BM25 index from Qdrant")
-		points, _ = pipeline.retriever.client.scroll(
-			collection_name=pipeline.settings.collection_name,
-			limit=10000,
-			with_payload=True,
-			with_vectors=False,
-		)
-		bm25_chunks = [
+		logger.info("Embedding and indexing chunks in batches")
+		total_indexed = 0
+		for i in range(0, len(chunks), EMBED_INDEX_BATCH_SIZE):
+			batch_chunks = chunks[i:i + EMBED_INDEX_BATCH_SIZE]
+			batch_embeddings = pipeline.embedder.embed_chunks(batch_chunks)
+			indexer.index_chunks(batch_embeddings)
+			total_indexed += len(batch_chunks)
+			logger.info("Indexed batch: %s/%s chunks", total_indexed, len(chunks))
+
+		# Keep BM25 in memory in sync without scrolling the whole collection every upload.
+		new_bm25_chunks = [
 			{
-				"text": point.payload["text"],
-				"chunk_id": point.payload["chunk_id"],
-				"page_number": point.payload["page_number"],
-				"source_file": point.payload["source_file"],
-				"chunk_index": point.payload["chunk_index"],
+				"text": chunk.text,
+				"chunk_id": chunk.chunk_id,
+				"page_number": chunk.page_number,
+				"source_file": chunk.source_file,
+				"chunk_index": chunk.chunk_index,
 			}
-			for point in points
+			for chunk in chunks
 		]
-		pipeline.retriever.build_bm25_index(bm25_chunks)
+		existing_bm25 = pipeline.retriever.bm25_chunks or []
+		pipeline.retriever.build_bm25_index(existing_bm25 + new_bm25_chunks)
 
 		logger.info("Upload and ingestion completed for: %s", file.filename)
 		return {

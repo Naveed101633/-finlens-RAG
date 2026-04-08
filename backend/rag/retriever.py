@@ -207,10 +207,10 @@ class Retriever:
     def hybrid_search(self, query: str, top_k: int = 20) -> list[SearchResult]:
         logger.info("Hybrid search combining semantic and BM25 results")
 
-        # If no documents indexed return empty
+        # If BM25 is not initialized, fall back to semantic-only search.
         if self.bm25_index is None or len(self.bm25_chunks) == 0:
-            logger.warning("No documents indexed. Returning empty results.")
-            return []
+            logger.warning("BM25 index is empty. Falling back to semantic-only retrieval.")
+            return self.search(query, top_k=top_k)
 
         semantic_results = self.search(query, top_k=top_k * 2)
         bm25_results = self.bm25_search(query, top_k=top_k * 2)

@@ -41,27 +41,11 @@ class RAGPipeline:
             collection_exists = False
 
         if collection_exists:
-            points, _ = self.retriever.client.scroll(
-                collection_name=settings.collection_name,
-                limit=10000,
-                with_payload=True,
-                with_vectors=False,
+            logger.info(
+                "Collection '%s' exists. BM25 will be updated during uploads; "
+                "semantic retrieval is available immediately.",
+                settings.collection_name,
             )
-            chunks = [
-                {
-                    "text": point.payload["text"],
-                    "chunk_id": point.payload["chunk_id"],
-                    "page_number": point.payload["page_number"],
-                    "source_file": point.payload["source_file"],
-                    "chunk_index": point.payload["chunk_index"],
-                }
-                for point in points
-            ]
-            if chunks:
-                self.retriever.build_bm25_index(chunks)
-                logger.info(f"BM25 index built with {len(chunks)} chunks")
-            else:
-                logger.info("Collection exists but has no documents; BM25 index skipped")
         else:
             logger.info(
                 "Collection '%s' not found yet; upload flow will create it on first document.",

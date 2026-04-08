@@ -5,7 +5,6 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.routes.query import router as query_router
-from rag.pipeline import get_pipeline
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -36,20 +35,3 @@ app.include_router(ingest_router)
 def root() -> dict:
 	"""Root endpoint with API metadata."""
 	return {"message": "FinLens API", "version": "1.0.0", "docs": "/docs"}
-
-
-@app.on_event("startup")
-async def on_startup() -> None:
-    """Warm up pipeline in background so healthcheck passes immediately."""
-    import asyncio
-    logger.info("FinLens API starting up")
-    asyncio.create_task(warm_up_pipeline())
-
-async def warm_up_pipeline():
-    import asyncio
-    await asyncio.sleep(2)
-    try:
-        get_pipeline()
-        logger.info("Pipeline ready")
-    except Exception as e:
-        logger.error(f"Pipeline warmup failed: {e}")
