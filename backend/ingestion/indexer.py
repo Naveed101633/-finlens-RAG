@@ -1,5 +1,6 @@
 """Vector indexing for FinLens RAG system using Qdrant."""
 
+import hashlib
 import logging
 from typing import List, Tuple
 
@@ -42,11 +43,8 @@ class QdrantIndexer:
     def create_collection(self) -> None:
         """Create Qdrant collection if it does not exist and add payload index for filtering."""
         try:
-            # Check if collection already exists
-            collections = self.client.get_collections().collections
-            collection_names = [col.name for col in collections]
-
-            if self.collection_name in collection_names:
+            # Fast existence check is cheaper than listing all collections each upload.
+            if self.client.collection_exists(self.collection_name):
                 logger.info(f"Collection '{self.collection_name}' already exists")
             else:
                 # Create new collection
@@ -62,13 +60,17 @@ class QdrantIndexer:
                     f"dimension {self.embedding_dim} and COSINE distance"
                 )
 
-            # Create payload index on source_file (required for delete by source_file)
-            self.client.create_payload_index(
-                collection_name=self.collection_name,
-                field_name="source_file",
-                field_schema=PayloadSchemaType.KEYWORD,
-            )
-            logger.info("Created payload index on 'source_file' field for filtering")
+            # Ensure payload index on source_file exists (required for delete by source_file).
+            # Safe to call repeatedly; ignore "already exists" style errors from backend.
+            try:
+                self.client.create_payload_index(
+                    collection_name=self.collection_name,
+                    field_name="source_file",
+                    field_schema=PayloadSchemaType.KEYWORD,
+                )
+                logger.info("Ensured payload index on 'source_file' field")
+            except Exception as index_exc:
+                logger.info("Payload index already present or skipped: %s", index_exc)
 
         except Exception as e:
             logger.error(f"Error creating collection or payload index: {e}")
@@ -76,12 +78,12 @@ class QdrantIndexer:
     
     def index_chunks(
         self, 
-        chunk_embeddings: List[Tuple[TextChunk, List[float]]]
+        chunk_embeddings: List[Tuple[TextChunk, List[float]]],
+        batch_size: int = 200,
     ) -> None:
         """Index text chunks with their embeddings in Qdrant."""
         logger.info(f"Indexing {len(chunk_embeddings)} chunks into '{self.collection_name}'")
-        
-        batch_size = 50
+
         total_indexed = 0
         
         for i in range(0, len(chunk_embeddings), batch_size):
@@ -89,7 +91,9 @@ class QdrantIndexer:
             points = []
             
             for chunk, embedding in batch:
-                point_id = abs(hash(chunk.chunk_id)) % (2**63)
+                # Use deterministic ID so re-indexing the same chunk updates instead of duplicating.
+                digest = hashlib.sha256(chunk.chunk_id.encode("utf-8")).hexdigest()
+                point_id = int(digest[:16], 16) % (2**63)
                 
                 payload = {
                     "text": chunk.text,

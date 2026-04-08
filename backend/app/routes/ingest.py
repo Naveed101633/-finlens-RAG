@@ -14,7 +14,8 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["ingest"])
-EMBED_INDEX_BATCH_SIZE = 32
+EMBED_INDEX_BATCH_SIZE = 96
+QDRANT_UPSERT_BATCH_SIZE = 256
 
 
 @router.post("/upload")
@@ -63,7 +64,7 @@ async def upload_document(file: UploadFile = File(...)) -> dict:
 		for i in range(0, len(chunks), EMBED_INDEX_BATCH_SIZE):
 			batch_chunks = chunks[i:i + EMBED_INDEX_BATCH_SIZE]
 			batch_embeddings = pipeline.embedder.embed_chunks(batch_chunks)
-			indexer.index_chunks(batch_embeddings)
+			indexer.index_chunks(batch_embeddings, batch_size=QDRANT_UPSERT_BATCH_SIZE)
 			total_indexed += len(batch_chunks)
 			logger.info("Indexed batch: %s/%s chunks", total_indexed, len(chunks))
 
