@@ -33,6 +33,23 @@ type UploadResponse = {
   message: string;
 };
 
+type UploadStartResponse = {
+  job_id: string;
+  status: string;
+  message: string;
+};
+
+type UploadStatusResponse = {
+  job_id: string;
+  status: "queued" | "processing" | "completed" | "failed";
+  stage?: string;
+  filename?: string;
+  pages_loaded?: number;
+  chunks_created?: number;
+  message?: string;
+  error?: string;
+};
+
 type DocumentsResponse = {
   documents: string[];
   total: number;
@@ -53,6 +70,7 @@ export default function Home() {
   const [isUploading, setIsUploading] = useState<boolean>(false);
   const [uploadResult, setUploadResult] = useState<UploadResponse | null>(null);
   const [uploadError, setUploadError] = useState<string>("");
+  const [uploadStage, setUploadStage] = useState<string>("");
   const [documents, setDocuments] = useState<string[]>([]);
   const [deletingDoc, setDeletingDoc] = useState<string | null>(null);
   const [showUpload, setShowUpload] = useState<boolean>(false);
@@ -147,6 +165,7 @@ export default function Home() {
     setIsUploading(true);
     setUploadError("");
     setUploadResult(null);
+    setUploadStage("Uploading file");
 
     try {
       const formData = new FormData();
@@ -162,16 +181,52 @@ export default function Home() {
         throw new Error(detail || "Failed to upload and index document.");
       }
 
-      const data: UploadResponse = await response.json();
-      setUploadResult(data);
+      const startData: UploadStartResponse = await response.json();
+      const timeoutAt = Date.now() + 20 * 60 * 1000;
 
-      const docsResponse = await fetch(`${apiBaseUrl}/api/documents`, {
-        method: "GET",
-      });
-      if (docsResponse.ok) {
-        const docsData: DocumentsResponse = await docsResponse.json();
-        setDocuments(docsData.documents);
+      while (Date.now() < timeoutAt) {
+        const statusResponse = await fetch(
+          `${apiBaseUrl}/api/upload-status/${encodeURIComponent(startData.job_id)}`,
+          { method: "GET" }
+        );
+
+        if (!statusResponse.ok) {
+          throw new Error("Unable to fetch upload status.");
+        }
+
+        const statusData: UploadStatusResponse = await statusResponse.json();
+        setUploadStage(statusData.stage ?? "Processing");
+
+        if (statusData.status === "completed") {
+          setUploadResult({
+            filename: statusData.filename ?? uploadFile.name,
+            pages_loaded: statusData.pages_loaded ?? 0,
+            chunks_created: statusData.chunks_created ?? 0,
+            status: "success",
+            message: statusData.message ?? "Document uploaded and indexed successfully",
+          });
+
+          const docsResponse = await fetch(`${apiBaseUrl}/api/documents`, {
+            method: "GET",
+          });
+          if (docsResponse.ok) {
+            const docsData: DocumentsResponse = await docsResponse.json();
+            setDocuments(docsData.documents);
+          }
+          setUploadStage("");
+          return;
+        }
+
+        if (statusData.status === "failed") {
+          throw new Error(statusData.error || "Upload processing failed.");
+        }
+
+        await new Promise((resolve) => {
+          setTimeout(resolve, 1500);
+        });
       }
+
+      throw new Error("Upload is taking too long. Please try a smaller PDF or retry.");
     } catch (err) {
       const message =
         err instanceof TypeError
@@ -180,6 +235,7 @@ export default function Home() {
             ? err.message
             : "Something went wrong while uploading the document.";
       setUploadError(message);
+      setUploadStage("");
     } finally {
       setIsUploading(false);
     }
@@ -325,7 +381,7 @@ export default function Home() {
                     {isUploading ? (
                       <>
                         <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
-                        Uploading...
+                        {uploadStage ? uploadStage : "Uploading..."}
                       </>
                     ) : (
                       "Upload and Index"

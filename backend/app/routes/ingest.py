@@ -1,8 +1,10 @@
 import logging
 import shutil
 from pathlib import Path
+from threading import Lock
+from uuid import uuid4
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, File, HTTPException, UploadFile
 from qdrant_client import models
 
 from ingestion.chunker import TextChunker
@@ -16,11 +18,98 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["ingest"])
 EMBED_INDEX_BATCH_SIZE = 96
 QDRANT_UPSERT_BATCH_SIZE = 256
+UPLOAD_JOBS: dict[str, dict] = {}
+UPLOAD_JOBS_LOCK = Lock()
+
+
+def _update_upload_job(job_id: str, updates: dict) -> None:
+	with UPLOAD_JOBS_LOCK:
+		if job_id in UPLOAD_JOBS:
+			UPLOAD_JOBS[job_id].update(updates)
+
+
+def _process_upload_job(job_id: str, file_path: str, filename: str) -> None:
+	try:
+		_update_upload_job(job_id, {"status": "processing", "stage": "Loading pipeline"})
+		pipeline = get_pipeline()
+
+		_update_upload_job(job_id, {"stage": "Extracting text from PDF"})
+		loader = PDFLoader(file_path)
+		pages = loader.load()
+
+		_update_upload_job(job_id, {"stage": "Chunking document"})
+		chunker = TextChunker(
+			chunk_size=pipeline.settings.chunk_size,
+			chunk_overlap=pipeline.settings.chunk_overlap,
+		)
+		chunks = chunker.chunk_documents(pages)
+		if not chunks:
+			raise ValueError("No valid text chunks were extracted from this PDF")
+
+		_update_upload_job(job_id, {"stage": "Preparing vector index"})
+		indexer = QdrantIndexer(
+			host=pipeline.settings.qdrant_host,
+			port=pipeline.settings.qdrant_port,
+			collection_name=pipeline.settings.collection_name,
+			embedding_dim=pipeline.embedder.get_embedding_dimension(),
+		)
+		indexer.create_collection()
+
+		total_chunks = len(chunks)
+		total_indexed = 0
+		for i in range(0, total_chunks, EMBED_INDEX_BATCH_SIZE):
+			batch_chunks = chunks[i:i + EMBED_INDEX_BATCH_SIZE]
+			_update_upload_job(
+				job_id,
+				{
+					"stage": f"Embedding/indexing chunks ({total_indexed}/{total_chunks})",
+				},
+			)
+			batch_embeddings = pipeline.embedder.embed_chunks(batch_chunks)
+			indexer.index_chunks(batch_embeddings, batch_size=QDRANT_UPSERT_BATCH_SIZE)
+			total_indexed += len(batch_chunks)
+
+		_update_upload_job(job_id, {"stage": "Updating keyword index"})
+		new_bm25_chunks = [
+			{
+				"text": chunk.text,
+				"chunk_id": chunk.chunk_id,
+				"page_number": chunk.page_number,
+				"source_file": chunk.source_file,
+				"chunk_index": chunk.chunk_index,
+			}
+			for chunk in chunks
+		]
+		existing_bm25 = pipeline.retriever.bm25_chunks or []
+		pipeline.retriever.build_bm25_index(existing_bm25 + new_bm25_chunks)
+
+		_update_upload_job(
+			job_id,
+			{
+				"status": "completed",
+				"stage": "Done",
+				"filename": filename,
+				"pages_loaded": len(pages),
+				"chunks_created": len(chunks),
+				"message": "Document uploaded and indexed successfully",
+			},
+		)
+		logger.info("Upload and ingestion completed for: %s", filename)
+	except Exception as exc:
+		logger.exception("Error while processing background upload")
+		_update_upload_job(
+			job_id,
+			{
+				"status": "failed",
+				"stage": "Failed",
+				"error": str(exc),
+			},
+		)
 
 
 @router.post("/upload")
-async def upload_document(file: UploadFile = File(...)) -> dict:
-	"""Upload a PDF and run the full ingestion pipeline."""
+async def upload_document(background_tasks: BackgroundTasks, file: UploadFile = File(...)) -> dict:
+	"""Accept a PDF upload and process ingestion asynchronously."""
 	if file.content_type != "application/pdf" or not (file.filename or "").lower().endswith(".pdf"):
 		raise HTTPException(status_code=400, detail="Only PDF files are supported")
 
@@ -35,60 +124,21 @@ async def upload_document(file: UploadFile = File(...)) -> dict:
 		with destination.open("wb") as buffer:
 			shutil.copyfileobj(file.file, buffer)
 
-		pipeline = get_pipeline()
-
-		logger.info("Loading PDF pages")
-		loader = PDFLoader(str(destination))
-		pages = loader.load()
-
-		logger.info("Chunking document text")
-		chunker = TextChunker(
-			chunk_size=pipeline.settings.chunk_size,
-			chunk_overlap=pipeline.settings.chunk_overlap,
-		)
-		chunks = chunker.chunk_documents(pages)
-		if not chunks:
-			raise HTTPException(status_code=400, detail="No valid text chunks were extracted from this PDF")
-
-		logger.info("Indexing chunks into existing Qdrant collection")
-		indexer = QdrantIndexer(
-			host=pipeline.settings.qdrant_host,
-			port=pipeline.settings.qdrant_port,
-			collection_name=pipeline.settings.collection_name,
-			embedding_dim=pipeline.embedder.get_embedding_dimension(),
-		)
-		indexer.create_collection()
-
-		logger.info("Embedding and indexing chunks in batches")
-		total_indexed = 0
-		for i in range(0, len(chunks), EMBED_INDEX_BATCH_SIZE):
-			batch_chunks = chunks[i:i + EMBED_INDEX_BATCH_SIZE]
-			batch_embeddings = pipeline.embedder.embed_chunks(batch_chunks)
-			indexer.index_chunks(batch_embeddings, batch_size=QDRANT_UPSERT_BATCH_SIZE)
-			total_indexed += len(batch_chunks)
-			logger.info("Indexed batch: %s/%s chunks", total_indexed, len(chunks))
-
-		# Keep BM25 in memory in sync without scrolling the whole collection every upload.
-		new_bm25_chunks = [
-			{
-				"text": chunk.text,
-				"chunk_id": chunk.chunk_id,
-				"page_number": chunk.page_number,
-				"source_file": chunk.source_file,
-				"chunk_index": chunk.chunk_index,
+		job_id = str(uuid4())
+		with UPLOAD_JOBS_LOCK:
+			UPLOAD_JOBS[job_id] = {
+				"job_id": job_id,
+				"status": "queued",
+				"stage": "Queued",
+				"filename": file.filename,
 			}
-			for chunk in chunks
-		]
-		existing_bm25 = pipeline.retriever.bm25_chunks or []
-		pipeline.retriever.build_bm25_index(existing_bm25 + new_bm25_chunks)
 
-		logger.info("Upload and ingestion completed for: %s", file.filename)
+		background_tasks.add_task(_process_upload_job, job_id, str(destination), file.filename or "")
+		logger.info("Upload accepted for async processing: %s (job %s)", file.filename, job_id)
 		return {
-			"filename": file.filename,
-			"pages_loaded": len(pages),
-			"chunks_created": len(chunks),
-			"status": "success",
-			"message": "Document uploaded and indexed successfully",
+			"job_id": job_id,
+			"status": "queued",
+			"message": "Upload accepted. Processing started in background.",
 		}
 	except HTTPException:
 		raise
@@ -97,6 +147,18 @@ async def upload_document(file: UploadFile = File(...)) -> dict:
 		raise HTTPException(status_code=500, detail=str(exc)) from exc
 	finally:
 		await file.close()
+
+
+@router.get("/upload-status/{job_id}")
+def upload_status(job_id: str) -> dict:
+	"""Return upload processing status for a job."""
+	with UPLOAD_JOBS_LOCK:
+		job = UPLOAD_JOBS.get(job_id)
+
+	if not job:
+		raise HTTPException(status_code=404, detail="Upload job not found")
+
+	return job
 
 
 @router.get("/documents")
