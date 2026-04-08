@@ -16,8 +16,6 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["ingest"])
-EMBED_INDEX_BATCH_SIZE = 96
-QDRANT_UPSERT_BATCH_SIZE = 256
 UPLOAD_JOBS: dict[str, dict] = {}
 UPLOAD_JOBS_LOCK = Lock()
 
@@ -32,6 +30,8 @@ def _process_upload_job(job_id: str, file_path: str, filename: str) -> None:
 	try:
 		_update_upload_job(job_id, {"status": "processing", "stage": "Loading pipeline"})
 		pipeline = get_pipeline()
+		embed_batch_size = max(16, int(pipeline.settings.ingest_embed_batch_size))
+		upsert_batch_size = max(32, int(pipeline.settings.ingest_qdrant_upsert_batch_size))
 
 		_update_upload_job(job_id, {"stage": "Extracting text from PDF"})
 		loader = PDFLoader(file_path)
@@ -57,8 +57,8 @@ def _process_upload_job(job_id: str, file_path: str, filename: str) -> None:
 
 		total_chunks = len(chunks)
 		total_indexed = 0
-		for i in range(0, total_chunks, EMBED_INDEX_BATCH_SIZE):
-			batch_chunks = chunks[i:i + EMBED_INDEX_BATCH_SIZE]
+		for i in range(0, total_chunks, embed_batch_size):
+			batch_chunks = chunks[i:i + embed_batch_size]
 			_update_upload_job(
 				job_id,
 				{
@@ -66,7 +66,7 @@ def _process_upload_job(job_id: str, file_path: str, filename: str) -> None:
 				},
 			)
 			batch_embeddings = pipeline.embedder.embed_chunks(batch_chunks)
-			indexer.index_chunks(batch_embeddings, batch_size=QDRANT_UPSERT_BATCH_SIZE)
+			indexer.index_chunks(batch_embeddings, batch_size=upsert_batch_size)
 			total_indexed += len(batch_chunks)
 
 		_update_upload_job(job_id, {"stage": "Updating keyword index"})

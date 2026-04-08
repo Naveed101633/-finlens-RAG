@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     gemini_model: str = "gemini-2.5-flash"
     chunk_size: int = 512
     chunk_overlap: int = 50
+    ingest_embed_batch_size: int = 128
+    ingest_qdrant_upsert_batch_size: int = 256
     top_k_retrieval: int = 20
     top_k_rerank: int = 5
 
