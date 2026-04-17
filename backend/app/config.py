@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     collection_name: str = "finlens_reports"
     embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
     gemini_model: str = "gemini-2.5-flash"
+    gemini_fallback_model: str = "gemini-3.1-flash-lite-preview"
     chunk_size: int = 512
     chunk_overlap: int = 50
     ingest_embed_batch_size: int = 64

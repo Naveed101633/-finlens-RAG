@@ -55,7 +55,8 @@ class RAGPipeline:
         # Initialize generator
         self.generator = Generator(
             api_key=settings.google_api_key,
-            model=settings.gemini_model
+            model=settings.gemini_model,
+            fallback_model=settings.gemini_fallback_model,
         )
         
         # Store settings for reference

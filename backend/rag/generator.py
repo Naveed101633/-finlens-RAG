@@ -1,6 +1,7 @@
 """Answer generation for FinLens RAG system using Gemini."""
 
 import logging
+import time
 from dataclasses import dataclass
 from typing import List
 
@@ -24,6 +25,15 @@ class GeneratedAnswer:
 class Generator:
     """Generates answers using Gemini LLM based on retrieved context."""
 
+    RETRYABLE_ERROR_MARKERS = (
+        "503",
+        "unavailable",
+        "resource exhausted",
+        "429",
+        "deadline exceeded",
+        "timeout",
+    )
+
     @staticmethod
     def _normalize_model_name(model: str) -> str:
         """Normalize model names from env/config to Gemini API expected format."""
@@ -34,20 +44,44 @@ class Generator:
             cleaned = cleaned[len("models/") :]
 
         return cleaned or "gemini-2.5-flash"
+
+    @classmethod
+    def _is_retryable_error(cls, error: Exception) -> bool:
+        message = str(error).lower()
+        return any(marker in message for marker in cls.RETRYABLE_ERROR_MARKERS)
+
+    def _generate_with_model(self, model_name: str, prompt: str) -> str:
+        response = self.client.models.generate_content(
+            model=model_name,
+            contents=prompt,
+        )
+        return response.text
     
-    def __init__(self, api_key: str, model: str = "gemini-2.5-flash"):
+    def __init__(self, api_key: str, model: str = "gemini-2.5-flash", fallback_model: str = "gemini-3.1-flash-lite-preview"):
         """Initialize the generator with Gemini API.
         
         Args:
             api_key: Google API key for Gemini
             model: Name of the Gemini model to use
+            fallback_model: Backup model to use when the primary model is overloaded
         """
         self.model_name = self._normalize_model_name(model)
+        self.fallback_model_name = self._normalize_model_name(fallback_model)
         
         if self.model_name != (model or ""):
             logger.warning("Normalized Gemini model name from '%s' to '%s'", model, self.model_name)
+        if self.fallback_model_name != (fallback_model or ""):
+            logger.warning(
+                "Normalized Gemini fallback model name from '%s' to '%s'",
+                fallback_model,
+                self.fallback_model_name,
+            )
 
-        logger.info(f"Configuring Gemini API with model: {self.model_name}")
+        logger.info(
+            "Configuring Gemini API with model: %s (fallback: %s)",
+            self.model_name,
+            self.fallback_model_name,
+        )
         self.client = genai.Client(api_key=api_key)
         logger.info("Generator initialized successfully")
     
@@ -102,17 +136,58 @@ QUESTION:
 ANSWER:"""
 
         try:
-            # Generate response from Gemini
-            response = self.client.models.generate_content(
-                model=self.model_name,
-                contents=prompt,
-            )
-            answer = response.text
-            logger.info(f"Generated answer of length {len(answer)} characters")
-            
+            answer = ""
+            used_model_name = self.model_name
+            model_attempts = [self.model_name]
+            if self.fallback_model_name and self.fallback_model_name not in model_attempts:
+                model_attempts.append(self.fallback_model_name)
+
+            last_error: Exception | None = None
+            for attempt_index, model_name in enumerate(model_attempts, start=1):
+                for retry_index in range(3):
+                    try:
+                        answer = self._generate_with_model(model_name, prompt)
+                        used_model_name = model_name
+                        logger.info(
+                            "Generated answer of length %s characters using %s",
+                            len(answer),
+                            model_name,
+                        )
+                        break
+                    except Exception as exc:
+                        last_error = exc
+                        if not self._is_retryable_error(exc) or retry_index == 2:
+                            logger.warning(
+                                "Gemini attempt failed for model %s (attempt %s, retry %s): %s",
+                                model_name,
+                                attempt_index,
+                                retry_index + 1,
+                                exc,
+                            )
+                            break
+
+                        backoff_seconds = 2 ** retry_index
+                        logger.warning(
+                            "Transient Gemini error for model %s, retrying in %s seconds: %s",
+                            model_name,
+                            backoff_seconds,
+                            exc,
+                        )
+                        time.sleep(backoff_seconds)
+
+                if answer:
+                    break
+
+            if not answer and last_error is not None:
+                raise last_error
+
         except Exception as e:
             logger.error(f"Error generating answer with Gemini: {e}")
-            answer = f"Error generating answer: {str(e)}"
+            used_model_name = self.fallback_model_name or self.model_name
+            answer = (
+                "The answer service is temporarily busy. "
+                "Please try again in a moment."
+            )
         
         # Extract top 3 citations by score
         top_results = sorted(search_results, key=lambda x: x.score, reverse=True)[:3]
@@ -131,7 +206,7 @@ ANSWER:"""
             answer=answer,
             citations=citations,
             query=query,
-            model_used=self.model_name
+            model_used=used_model_name,
         )
         
         return generated_answer

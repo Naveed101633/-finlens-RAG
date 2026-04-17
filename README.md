@@ -316,13 +316,25 @@ RELOAD=true
 
 For production use, consider:
 
-1. **Persistent Qdrant**: Replace Docker with managed Qdrant Cloud or self-hosted with persistent volumes
-2. **Authentication**: Add JWT/OAuth to `/auth` endpoints (FastAPI middleware)
-3. **Rate Limiting**: Use FastAPI `SlowAPI` to prevent API abuse
-4. **Monitoring**: Integrate OpenTelemetry for tracing, Prometheus for metrics
-5. **Document Versioning**: Track document update history and chunk lineage
-6. **Cost Optimization**: Cache embeddings and use batch processing for bulk uploads
-7. **Multi-Tenancy**: Add user/organization isolation at the Qdrant collection level
+1. **Frontend on Vercel**: Keep the Next.js app on Vercel and point it to the backend API URL through `NEXT_PUBLIC_API_URL`.
+2. **Backend on Cloud Run or Render**: Deploy the FastAPI service as a Docker container from GitHub using the backend Dockerfile.
+3. **Persistent Qdrant**: Use Qdrant Cloud or another managed persistent instance instead of local Docker.
+4. **Gemini fallback**: Keep `gemini-2.5-flash` as primary and fall back to `gemini-3.1-flash-lite-preview` on transient 503 or quota errors.
+5. **Authentication**: Add JWT/OAuth to `/auth` endpoints (FastAPI middleware)
+6. **Rate Limiting**: Use FastAPI `SlowAPI` to prevent API abuse
+7. **Monitoring**: Integrate OpenTelemetry for tracing, Prometheus for metrics
+8. **Document Versioning**: Track document update history and chunk lineage
+9. **Cost Optimization**: Cache embeddings and use batch processing for bulk uploads
+10. **Multi-Tenancy**: Add user/organization isolation at the Qdrant collection level
+
+### Recommended production layout
+
+- **Frontend**: Vercel
+- **Backend**: Cloud Run or Render
+- **Vector store**: Qdrant Cloud
+- **GitHub**: source repository for both services
+
+This keeps the UI fast, avoids trial-plan downtime, and prevents a single provider outage from taking the whole app down.
 
 ---
 
