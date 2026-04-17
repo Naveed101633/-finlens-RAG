@@ -1,0 +1,21 @@
+run = "cd backend && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+modules = ["python-3.12"]
+
+[nix]
+channel = "stable-23.11"
+
+[unitTest]
+language = "python3"
+
+[env]
+VIRTUAL_ENV = "/home/runner/${REPL_SLUG}/.venv"
+PATH = "${VIRTUAL_ENV}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+PYTHONUNBUFFERED = "1"
+PYTHONPATH = "/home/runner/${REPL_SLUG}"
+
+[packager]
+language = "python3"
+ignoredPaths = [".git", "node_modules"]
+
+[packager.features]
+enableGuessImports = true
