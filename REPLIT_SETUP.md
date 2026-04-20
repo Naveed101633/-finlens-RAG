@@ -1,6 +1,6 @@
-# Replit + Vercel Deployment Guide (Free)
+# Replit Backend + Vercel Frontend Deployment Guide
 
-## Backend on Replit (Free)
+## Backend on Replit
 
 ### Step 1: Fork the repo to Replit
 1. Go to https://replit.com
@@ -20,16 +20,14 @@
    - `GEMINI_MODEL`: `gemini-2.5-flash`
    - `GEMINI_FALLBACK_MODEL`: `gemini-3.1-flash-lite-preview`
 
-### Step 3: Start Qdrant in Replit
-In the Replit shell (bottom panel), run:
-```bash
-docker-compose up -d
-```
+### Step 3: Point the backend at Qdrant
+Use a persistent Qdrant instance such as Qdrant Cloud. Replit is not a good place to rely on local Docker storage for this project.
 
-If Docker is not available in Replit, use the Qdrant in-memory mode. Add to `.env`:
+Set these secrets in Replit:
 ```
-QDRANT_HOST=localhost
+QDRANT_HOST=your-qdrant-host
 QDRANT_PORT=6333
+QDRANT_API_KEY=your-qdrant-api-key
 ```
 
 ### Step 4: Run the backend
@@ -40,7 +38,7 @@ https://your-replit-slug.replit.dev
 
 Copy this URL—it's your `BACKEND_URL`.
 
-## Frontend on Vercel (Free)
+## Frontend on Vercel
 
 ### Step 1: Deploy to Vercel
 1. Go to https://vercel.com
@@ -64,7 +62,7 @@ Click Deploy. Vercel will auto-build and deploy.
 4. Verify it retrieves and answers with citations
 
 ## Key notes
-- Replit free tier has limitations (ephemeral storage, ~1GB RAM)
-- For production, the data will be lost on restart unless you add persistent storage
-- Vercel frontend is permanent; Replit backend goes to sleep after 30 min inactivity
-- If you need persistent Qdrant, consider Qdrant Cloud free tier (separate sign-up)
+- Replit is a good fit for the API layer, not for long-lived local vector storage
+- Vercel is the better fit for the Next.js frontend
+- Use Qdrant Cloud or another persistent managed Qdrant instance
+- Replit backend may sleep on the free tier, so expect a cold start on first request

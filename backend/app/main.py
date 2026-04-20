@@ -1,4 +1,5 @@
 import logging
+import os
 
 from app.routes.ingest import router as ingest_router
 from fastapi import FastAPI
@@ -15,14 +16,27 @@ app = FastAPI(
 	version="1.0.0",
 )
 
+default_cors_origins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "https://finlens-rag.vercel.app",
+]
+
+cors_origins = [
+    origin.strip()
+    for origin in os.getenv("CORS_ORIGINS", ",".join(default_cors_origins)).split(",")
+    if origin.strip()
+]
+
+cors_origin_regex = os.getenv(
+    "CORS_ORIGIN_REGEX",
+    r"https://.*\.(vercel\.app|replit\.dev|replit\.app)",
+)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "https://finlens-rag.vercel.app",
-    ],
-    allow_origin_regex=r"https://.*\.vercel\.app",
+    allow_origins=cors_origins,
+    allow_origin_regex=cors_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

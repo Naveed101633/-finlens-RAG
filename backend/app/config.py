@@ -9,7 +9,7 @@ ENV_FILE = Path(__file__).parent.parent.parent / ".env"
 class Settings(BaseSettings):
     google_api_key: str
     qdrant_host: str = "localhost"
-    qdrant_api_key: str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIiwic3ViamVjdCI6ImFwaS1rZXk6MTlkZDM4MDgtMWRkNy00OTQzLTg5ZmQtMTQ1NmRlZjAzZTZlIn0.n1wdpNhiSQFhE2ndbJtbmfwgR79ISe87iYkbbnvlbmU"
+    qdrant_api_key: str = ""
     qdrant_port: int = 6333
     collection_name: str = "finlens_reports"
     embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
