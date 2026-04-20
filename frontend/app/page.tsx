@@ -75,10 +75,16 @@ export default function Home() {
   const [deletingDoc, setDeletingDoc] = useState<string | null>(null);
   const [showUpload, setShowUpload] = useState<boolean>(false);
 
-  const apiBaseUrl = useMemo(
-    () => process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000",
-    []
-  );
+  const apiBaseUrl = useMemo(() => {
+    const rawBaseUrl = process.env.NEXT_PUBLIC_API_URL;
+    const resolvedBaseUrl =
+      rawBaseUrl && rawBaseUrl.trim().length > 0
+        ? rawBaseUrl
+        : "http://localhost:8000";
+
+    // Prevent accidental double slashes in request URLs.
+    return resolvedBaseUrl.replace(/\/+$/, "");
+  }, []);
 
   useEffect(() => {
     const checkHealth = async () => {
